@@ -12,7 +12,7 @@ import { filterRides, sortRides } from "./utils/rides";
 export default function App() {
   const [tab, setTab] = useState<Tab>("browse");
   const [rides, setRides] = useState<Ride[]>(INITIAL_RIDES);
-  const [filters, setFilters] = useState<ListFilters>({ to: "", mode: "all" });
+  const [filters, setFilters] = useState<ListFilters>({ from: "", to: "", mode: "all" });
   const [toast, setToast] = useState("");
 
   const filtered = useMemo(
