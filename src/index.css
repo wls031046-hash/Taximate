@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+    "Malgun Gothic", system-ui, sans-serif;
+  --color-taxi: #facc15;
+  --color-taxi-dark: #ca8a04;
+  --color-ink: #1c1917;
+  --color-muted: #78716c;
+  --color-surface: #fafaf9;
+  --color-line: #e7e5e4;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  background: var(--color-surface);
+  -webkit-font-smoothing: antialiased;
+}
+
+input::placeholder {
+  color: #a8a29e;
+}
