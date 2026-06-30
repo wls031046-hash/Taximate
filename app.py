@@ -23,6 +23,24 @@ MODE_DESC = {
     "together": "출발지에서 함께 출발하기",
 }
 
+POPULAR_LOCATIONS = [
+    "강남역",
+    "홍대입구",
+    "잠실역",
+    "서울역",
+    "신촌역",
+    "인천공항",
+    "김포공항",
+    "수원역",
+    "판교역",
+]
+
+POPULAR_ROUTES = [
+    ("강남역", "인천공항"),
+    ("홍대입구", "김포공항"),
+    ("잠실역", "수원역"),
+]
+
 
 def _at(hour: int, minute: int = 0) -> datetime:
     today = date.today()
@@ -130,23 +148,102 @@ def join_ride(ride_id: str) -> None:
         return
 
 
+def known_locations(rides: list[dict]) -> list[str]:
+    locs = set(POPULAR_LOCATIONS)
+    for ride in rides:
+        locs.add(ride["from"])
+        locs.add(ride["to"])
+    return sorted(locs)
+
+
+def location_suggestions(query: str, rides: list[dict], limit: int = 6) -> list[str]:
+    q = query.strip().lower()
+    if not q:
+        return []
+    matches = [loc for loc in known_locations(rides) if q in loc.lower()]
+    exact = [loc for loc in matches if loc.lower() == q]
+    partial = [loc for loc in matches if loc.lower() != q]
+    return (exact + partial)[:limit]
+
+
+def destination_suggestions(from_loc: str, rides: list[dict]) -> list[str]:
+    f = from_loc.strip()
+    if not f:
+        return []
+    dests: set[str] = set()
+    fl = f.lower()
+    for ride in rides:
+        if fl in ride["from"].lower() or fl in ride["to"].lower():
+            dests.add(ride["to"])
+            if ride["from"].lower() != fl:
+                dests.add(ride["from"])
+    for pf, pt in POPULAR_ROUTES:
+        if fl in pf.lower() or pf.lower() in fl:
+            dests.add(pt)
+    dests.discard(f)
+    return sorted(dests)[:8]
+
+
+def render_location_picker(
+    label: str,
+    state_key: str,
+    placeholder: str,
+    rides: list[dict],
+    *,
+    exclude: str = "",
+) -> str:
+    if state_key not in st.session_state:
+        st.session_state[state_key] = ""
+
+    value = st.text_input(
+        label,
+        value=st.session_state[state_key],
+        placeholder=placeholder,
+        key=f"input_{state_key}",
+    )
+    st.session_state[state_key] = value
+
+    suggestions = location_suggestions(value, rides)
+    if exclude.strip():
+        suggestions = [s for s in suggestions if s.strip().lower() != exclude.strip().lower()]
+
+    if value.strip() and suggestions:
+        exact = any(s.lower() == value.strip().lower() for s in suggestions)
+        if not exact or len(suggestions) > 1:
+            st.caption("📍 선택지")
+            cols = st.columns(min(len(suggestions), 4))
+            for i, loc in enumerate(suggestions):
+                if cols[i % len(cols)].button(
+                    loc,
+                    key=f"pick_{state_key}_{loc}",
+                    use_container_width=True,
+                ):
+                    st.session_state[state_key] = loc
+                    st.rerun()
+
+    return st.session_state[state_key]
+
+
+def location_hit(ride: dict, query: str) -> bool:
+    q = query.strip().lower()
+    if not q:
+        return False
+    return q in ride["from"].lower() or q in ride["to"].lower()
+
+
 def filter_rides(
     rides: list[dict],
     from_query: str,
     to_query: str,
     mode_filter: str,
 ) -> list[dict]:
-    f = from_query.strip().lower()
-    t = to_query.strip().lower()
+    queries = [q for q in (from_query.strip().lower(), to_query.strip().lower()) if q]
     result = []
     for ride in rides:
-        if f and f not in ride["from"].lower():
-            continue
-        if t and t not in ride["to"].lower():
-            continue
         if mode_filter != "전체" and MODE_LABEL[ride["mode"]] != mode_filter:
             continue
-        result.append(ride)
+        if not queries or any(location_hit(ride, q) for q in queries):
+            result.append(ride)
     return sorted(result, key=lambda r: r["departure_at"])
 
 
@@ -212,42 +309,49 @@ def render_ride_card(ride: dict) -> None:
 
 def page_browse() -> None:
     st.subheader("합승 찾기")
-    st.caption("내가 가는 출발지·도착지를 입력하면 맞는 합승을 찾아드려요.")
-
-    if "my_from" not in st.session_state:
-        st.session_state.my_from = ""
-    if "my_to" not in st.session_state:
-        st.session_state.my_to = ""
+    st.caption("출발지·도착지 중 하나만 맞아도 합승을 찾아드려요.")
 
     with st.container(border=True):
         st.markdown("**내가 가는 경로**")
         fc1, fc2 = st.columns(2)
         with fc1:
-            from_query = st.text_input(
+            from_query = render_location_picker(
                 "출발지",
-                value=st.session_state.my_from,
-                placeholder="예: 강남역, 홍대입구",
-                key="browse_from",
+                "my_from",
+                "예: 강남역, 홍대입구",
+                st.session_state.rides,
             )
         with fc2:
-            to_query = st.text_input(
+            to_query = render_location_picker(
                 "도착지",
-                value=st.session_state.my_to,
-                placeholder="예: 인천공항, 수원역",
-                key="browse_to",
+                "my_to",
+                "예: 인천공항, 수원역",
+                st.session_state.rides,
+                exclude=from_query,
             )
 
-        st.session_state.my_from = from_query
-        st.session_state.my_to = to_query
+        if (
+            from_query.strip()
+            and to_query.strip()
+            and from_query.strip().lower() == to_query.strip().lower()
+        ):
+            st.warning("출발지와 도착지가 같아요. 아래에서 도착지를 선택해 주세요.")
+            dests = destination_suggestions(from_query, st.session_state.rides)
+            if dests:
+                st.caption("🎯 추천 도착지")
+                dest_cols = st.columns(min(len(dests), 4))
+                for i, dest in enumerate(dests):
+                    if dest_cols[i % len(dest_cols)].button(
+                        dest,
+                        key=f"dest_pick_{dest}",
+                        use_container_width=True,
+                    ):
+                        st.session_state.my_to = dest
+                        st.rerun()
 
         st.caption("인기 경로")
         popular_cols = st.columns(3)
-        routes = [
-            ("강남역", "인천공항"),
-            ("홍대입구", "김포공항"),
-            ("잠실역", "수원역"),
-        ]
-        for i, (f, t) in enumerate(routes):
+        for i, (f, t) in enumerate(POPULAR_ROUTES):
             if popular_cols[i].button(f"{f} → {t}", key=f"route_{i}", use_container_width=True):
                 st.session_state.my_from = f
                 st.session_state.my_to = t
@@ -270,7 +374,7 @@ def page_browse() -> None:
         route_label = f"**{from_query or '어디서든'}** → **{to_query or '어디든'}**"
         st.caption(f"{route_label} · **{len(filtered)}건**의 합승")
     else:
-        st.caption(f"전체 **{len(filtered)}건**의 합승 · 출발지·도착지를 입력하면 더 정확해요")
+        st.caption(f"전체 **{len(filtered)}건**의 합승 · 출발지 또는 도착지 하나만 입력해도 검색돼요")
 
     if not filtered:
         st.warning("조건에 맞는 합승이 없어요. '합승 만들기'에서 직접 등록해 보세요.")
@@ -284,13 +388,39 @@ def page_create() -> None:
     st.subheader("합승 등록")
     st.caption("같은 방향으로 가는 승객을 모집해 보세요.")
 
-    with st.form("create_ride", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            from_loc = st.text_input("출발 위치 *", placeholder="강남역 2번 출구")
-        with c2:
-            to_loc = st.text_input("도착 위치 *", placeholder="인천공항 T1")
+    from_loc = render_location_picker(
+        "출발 위치 *",
+        "create_from",
+        "강남역 2번 출구",
+        st.session_state.rides,
+    )
+    to_loc = render_location_picker(
+        "도착 위치 *",
+        "create_to",
+        "인천공항 T1",
+        st.session_state.rides,
+        exclude=from_loc,
+    )
 
+    if (
+        from_loc.strip()
+        and to_loc.strip()
+        and from_loc.strip().lower() == to_loc.strip().lower()
+    ):
+        st.warning("출발지와 도착지가 같아요. 아래에서 도착지를 선택해 주세요.")
+        dests = destination_suggestions(from_loc, st.session_state.rides)
+        if dests:
+            dest_cols = st.columns(min(len(dests), 4))
+            for i, dest in enumerate(dests):
+                if dest_cols[i % len(dest_cols)].button(
+                    dest,
+                    key=f"create_dest_{dest}",
+                    use_container_width=True,
+                ):
+                    st.session_state.create_to = dest
+                    st.rerun()
+
+    with st.form("create_ride", clear_on_submit=True):
         dep_date = st.date_input("출발 날짜 *", value=date.today())
         dep_time = st.time_input("출발 시간 *", value=time(14, 0))
 
@@ -311,6 +441,9 @@ def page_create() -> None:
         if submitted:
             if not from_loc.strip() or not to_loc.strip():
                 st.error("출발 위치와 도착 위치를 입력해 주세요.")
+                return
+            if from_loc.strip().lower() == to_loc.strip().lower():
+                st.error("출발지와 도착지는 달라야 해요.")
                 return
             departure = datetime.combine(dep_date, dep_time)
             if departure <= datetime.now():
@@ -333,6 +466,8 @@ def page_create() -> None:
                 },
             )
             st.session_state.page = "합승 찾기"
+            st.session_state.create_from = ""
+            st.session_state.create_to = ""
             st.success("합승이 등록되었어요!")
             st.rerun()
 
