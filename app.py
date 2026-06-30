@@ -224,25 +224,24 @@ def render_location_picker(
     return st.session_state[state_key]
 
 
-def location_hit(ride: dict, query: str) -> bool:
-    q = query.strip().lower()
-    if not q:
-        return False
-    return q in ride["from"].lower() or q in ride["to"].lower()
-
-
 def filter_rides(
     rides: list[dict],
     from_query: str,
     to_query: str,
     mode_filter: str,
 ) -> list[dict]:
-    queries = [q for q in (from_query.strip().lower(), to_query.strip().lower()) if q]
+    f = from_query.strip().lower()
+    t = to_query.strip().lower()
     result = []
     for ride in rides:
         if mode_filter != "전체" and MODE_LABEL[ride["mode"]] != mode_filter:
             continue
-        if not queries or any(location_hit(ride, q) for q in queries):
+        if not f and not t:
+            result.append(ride)
+            continue
+        from_ok = f in ride["from"].lower() if f else False
+        to_ok = t in ride["to"].lower() if t else False
+        if from_ok or to_ok:
             result.append(ride)
     return sorted(result, key=lambda r: r["departure_at"])
 
@@ -309,7 +308,7 @@ def render_ride_card(ride: dict) -> None:
 
 def page_browse() -> None:
     st.subheader("합승 찾기")
-    st.caption("출발지·도착지 중 하나만 맞아도 합승을 찾아드려요.")
+    st.caption("출발지가 같거나, 도착지가 같으면 합승을 찾아드려요.")
 
     with st.container(border=True):
         st.markdown("**내가 가는 경로**")
@@ -374,7 +373,7 @@ def page_browse() -> None:
         route_label = f"**{from_query or '어디서든'}** → **{to_query or '어디든'}**"
         st.caption(f"{route_label} · **{len(filtered)}건**의 합승")
     else:
-        st.caption(f"전체 **{len(filtered)}건**의 합승 · 출발지 또는 도착지 하나만 입력해도 검색돼요")
+        st.caption(f"전체 **{len(filtered)}건**의 합승 · 출발지·도착지 각각 맞는 합승을 보여줘요")
 
     if not filtered:
         st.warning("조건에 맞는 합승이 없어요. '합승 만들기'에서 직접 등록해 보세요.")

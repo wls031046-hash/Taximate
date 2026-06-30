@@ -37,6 +37,7 @@ export interface RideFormData {
 }
 
 export interface ListFilters {
+  from: string;
   to: string;
   mode: ModeFilter;
 }
